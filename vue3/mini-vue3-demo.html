@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>mini-vue3-demo</title>
+    </head>
+    <body>
+        <div id="app">
+            {{ message }}
+        </div>
+        <script>
+            class Vue {
+                constructor(options) {
+                    let _data = {};
+                    if (typeof options.data === 'function') {
+                        _data = options.data();
+                    } else {
+                        _data = options.data;
+                    }
+                    this._data = _data;
+                }
+            }
+            Vue.prototype.$mount = function (el) {
+                console.log(el);
+                if (typeof el === 'string') {
+                    el = document.querySelector(el);
+                } else if (!(el instanceof Element)) {
+                    throw new Error('el 参数错误，必须为选择器或dom');
+                }
+
+                console.log(this);
+                // reative(this._data);
+            };
+            console.log(1);
+            const vm = new Vue({
+                data() {
+                    return {
+                        a: 1,
+                    };
+                },
+            });
+            vm.$mount('#app');
+
+            function reative(object) {
+                const proxyObj = new Proxy(object, {
+                    get(target, key) {
+                        return object[key];
+                    },
+                    set(target, key, value) {
+                        traget[key] = value;
+                        return true;
+                    },
+                });
+
+                return proxyObj;
+            }
+
+            function effect(fn) {
+                fn();
+            }
+        </script>
+    </body>
+</html>

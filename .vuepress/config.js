@@ -1,9 +1,15 @@
-module.exports = {
+const { config } = require('vuepress-theme-hope');
+
+module.exports = config({
     title: '前端知识整理',
     markdown: {
         lineNumbers: true,
     },
     themeConfig: {
+        themeColor: false,
+        mdEnhance: {
+            flowchart: true, // 流程图
+        },
         displayAllHeaders: true,
         sidebar: [
             {
@@ -12,6 +18,10 @@ module.exports = {
                 collapsable: false, // 可选的, 默认值是 true,
                 sidebarDepth: 0, // 可选的, 默认值是 1
                 children: [
+                    {
+                        title: '作用域',
+                        path: '/javascript/scpoe',
+                    },
                     {
                         title: 'ES2015',
                         path: '/javascript/es2015/',
@@ -35,4 +45,4 @@ module.exports = {
         smoothScroll: true,
         // sidebar: 'auto'
     },
-};
+});

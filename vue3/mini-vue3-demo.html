@@ -7,58 +7,258 @@
     </head>
     <body>
         <div id="app">
-            {{ message }}
+            abc{{ message }}def{{a}}
+            <div
+                v-bind:message="message"
+                :a="a"
+                :class="classes"
+                class="class-1"
+            >
+                <span @click="handleClick">{{message}}</span>
+                <input v-model="message" />
+                <span v-text="message">123</span>
+            </div>
         </div>
         <script>
+            const effects = new Map();
+            let currentEffect = null;
+            function effect(fn) {
+                currentEffect = fn;
+                fn();
+                currentEffect = null;
+            }
             class Vue {
                 constructor(options) {
-                    let _data = {};
+                    let $data = {};
                     if (typeof options.data === 'function') {
-                        _data = options.data();
+                        $data = options.data();
                     } else {
-                        _data = options.data;
+                        $data = options.data;
                     }
-                    this._data = _data;
+                    this.$data = $data;
+                    // TODO 深拷贝
+                    this.$rawOptions = options;
+                    // this.$options = options;
                 }
             }
             Vue.prototype.$mount = function (el) {
-                console.log(el);
                 if (typeof el === 'string') {
                     el = document.querySelector(el);
                 } else if (!(el instanceof Element)) {
                     throw new Error('el 参数错误，必须为选择器或dom');
                 }
 
-                console.log(this);
-                // reative(this._data);
+                this.$el = el;
+                this.$data = reative(this.$data);
+                proxyOptions(this);
+                Array.from(this.$el.childNodes).forEach((node) =>
+                    recursion(node, this),
+                );
             };
-            console.log(1);
+
+            function proxyOptions(vm) {
+                // 将props属性代理到this上
+                if (vm.$props) {
+                    Object.keys(vm.$props).forEach((propsKey) => {
+                        Object.defineProperty(vm, propsKey, {
+                            get() {
+                                return vm.$props[propsKey];
+                            },
+                            set() {
+                                throw new Error('该属性为props不能手动修改');
+                            },
+                        });
+                    });
+                }
+
+                // 将methods选项下的属性代理到vm上
+                if (vm.$rawOptions.methods) {
+                    Object.keys(vm.$rawOptions.methods).forEach((methodKey) => {
+                        if (vm[methodKey]) {
+                            throw new Error(
+                                `methods: ${methodKey} 与 props冲突`,
+                            );
+                        }
+                        Object.defineProperty(vm, methodKey, {
+                            get() {
+                                return vm.$rawOptions.methods[methodKey];
+                            },
+                        });
+                    });
+                }
+
+                // 将data中的属性代理到vm上
+                if (vm.$data) {
+                    Object.keys(vm.$data).forEach((dataKey) => {
+                        if (vm[dataKey]) {
+                            throw new Error(
+                                `methods: ${dataKey} 与 props / methods冲突`,
+                            );
+                        }
+                        Object.defineProperty(vm, dataKey, {
+                            get() {
+                                return vm.$data[dataKey];
+                            },
+                            set(value) {
+                                vm.$data[dataKey] = value;
+                            },
+                        });
+                    });
+                }
+            }
+
+            function recursion(node, vm) {
+                // 处理绑定值
+                // 需要将初始值存下来，否则第二次更新时匹配不到花括号，因为已经被替换了
+                if (node.nodeType === 3) {
+                    // 文本节点
+                    const rawNodeValue = node.nodeValue;
+                    node.nodeValue.replace(
+                        /{{([\w\s-_.]+)}}/g,
+                        (searchValue, replaceValue) => {
+                            effect(() => {
+                                node.nodeValue = rawNodeValue.replace(
+                                    /{{([\w\s-_.]+)}}/g,
+                                    (searchValue, replaceValue) => {
+                                        return vm.$data[replaceValue.trim()];
+                                    },
+                                );
+                            });
+                        },
+                    );
+                } else if (node.nodeType === 1) {
+                    // TODO 暂不支持自定directives
+                    // 元素节点
+                    Array.from(node.attributes).forEach((attr) => {
+                        // TODO 识别directives并将directives逻辑抽出
+                        const matchVModel = attr.name.startsWith('v-model');
+                        const matchVText = attr.name.startsWith('v-text');
+
+                        const matchVBind = attr.name.startsWith('v-bind:');
+                        const matchVBindShorthand = attr.name.startsWith(':');
+
+                        const matchVOn = attr.name.startsWith('v-on:');
+                        const matchVOnShorthand = attr.name.startsWith('@');
+
+                        if (matchVBind || matchVBindShorthand) {
+                            // 处理绑定attr
+                            effect(() => {
+                                const bindName = attr.name.substr(
+                                    attr.name.indexOf(':') + 1,
+                                );
+                                const bindValue = vm.$data[attr.value];
+                                const classAttr = node.attributes.getNamedItem(
+                                    'class',
+                                );
+                                if (bindName === 'class' && classAttr) {
+                                    // 处理:class合并
+                                    node.setAttribute(
+                                        bindName,
+                                        `${classAttr.value} ${bindValue}`,
+                                    );
+                                } else {
+                                    node.setAttribute(
+                                        bindName,
+                                        vm.$data[attr.value],
+                                    );
+                                }
+                            });
+                            node.removeAttribute(attr.name);
+                        } else if (matchVOn || matchVOnShorthand) {
+                            // TODO 修饰符暂不支持
+                            let bindEventName = '';
+                            if (matchVOn) {
+                                // TODO v-on:[var] 暂不支持
+                                bindEventName = attr.name.substr(5);
+                            } else {
+                                bindEventName = attr.name.substr(1);
+                            }
+                            // TODO 如何移除监听
+                            function eventHandler(e) {
+                                vm[attr.value].call(vm, e);
+                            }
+                            node.addEventListener(bindEventName, eventHandler);
+                            node.removeAttribute(attr.name);
+                        } else if (matchVModel) {
+                            // TODO 修饰符暂不支持
+                            effect(() => (node.value = vm.$data[attr.value]));
+                            // ! 目前只支持oninput先
+                            function vModelHandler(e) {
+                                vm.$data[attr.value] = e.target.value;
+                            }
+                            // TODO 如何移除监听
+                            node.addEventListener('input', vModelHandler);
+                            node.removeAttribute(attr.name);
+                        } else if (matchVText) {
+                            effect(
+                                () => (node.innerHTML = vm.$data[attr.value]),
+                            );
+                            node.removeAttribute(attr.name);
+                        }
+                    });
+                }
+                // 递归
+                Array.from(node.childNodes).forEach((e) => recursion(e, vm));
+            }
+
+            function reative(object) {
+                return new Proxy(object, {
+                    get(target, key) {
+                        // 依赖收集
+                        if (currentEffect) {
+                            if (!effects.has(target)) {
+                                effects.set(target, new Map());
+                            }
+                            const objMap = effects.get(target);
+                            if (!objMap.has(key)) {
+                                objMap.set(key, []);
+                            }
+                            objMap.get(key).push(currentEffect);
+                        }
+                        return target[key];
+                    },
+                    set(target, key, value) {
+                        target[key] = value;
+                        if (
+                            effects.has(target) &&
+                            effects.get(target).has(key)
+                        ) {
+                            for (const effect of effects.get(target).get(key)) {
+                                effect();
+                            }
+                        }
+                        return true;
+                    },
+                });
+            }
+
             const vm = new Vue({
                 data() {
                     return {
                         a: 1,
+                        classes: 'red',
+                        message: 'message',
                     };
+                },
+                methods: {
+                    handleClick(e) {
+                        console.log('handleClick -> e', e);
+                        this.a++;
+                    },
                 },
             });
             vm.$mount('#app');
+            window.vm = vm;
 
-            function reative(object) {
-                const proxyObj = new Proxy(object, {
-                    get(target, key) {
-                        return object[key];
-                    },
-                    set(target, key, value) {
-                        traget[key] = value;
-                        return true;
-                    },
-                });
-
-                return proxyObj;
-            }
-
-            function effect(fn) {
-                fn();
-            }
+            effect(() => {
+                console.log(vm.$data.a);
+            });
+            effect(() => {
+                console.log(vm.$data.a + 1);
+            });
+            vm.$data.a = 2;
+            vm.$data.a = 3;
+            vm.$data.message = '1243';
         </script>
     </body>
 </html>
